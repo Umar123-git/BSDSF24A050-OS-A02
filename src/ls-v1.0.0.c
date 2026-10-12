@@ -23,7 +23,8 @@
 extern int errno;
 
 void do_ls(const char *dir);
-void do_ls_long(const char *dir);
+void do_ls_long(const char *dir, char **names, int n);
+int cmp_names(const void *a, const void *b);
 char **read_names(const char *dir, int *count, int *maxlen);
 void free_names(char **names, int n);
 int term_width(void);
@@ -65,17 +66,21 @@ int main(int argc, char *argv[])
 
 void do_ls(const char *dir)
 {
-    if (mode == MODE_LONG) { do_ls_long(dir); return; }
     int n, maxlen;
     char **names = read_names(dir, &n, &maxlen);
     if (n < 0) return;
-    if (mode == MODE_HORIZ)
+
+    qsort(names, n, sizeof(char *), cmp_names);
+
+    if (mode == MODE_LONG)
+        do_ls_long(dir, names, n);
+    else if (mode == MODE_HORIZ)
         print_horiz(names, n, maxlen);
     else
         print_cols(names, n, maxlen);
+
     free_names(names, n);
 }
-
 
 
 static void mode_to_str(mode_t m, char *p)
@@ -116,27 +121,24 @@ static const char *group_of(gid_t g, char *buf, size_t n)
     snprintf(buf, n, "%u", (unsigned)g);
     return buf;
 }
-
-void do_ls_long(const char *dir)
+int cmp_names(const void *a, const void *b)
 {
-    DIR *dp = opendir(dir);
-    if (dp == NULL)
-    {
-        fprintf(stderr, "Cannot open directory : %s\n", dir);
-        return;
-    }
+    const char *s1 = *(const char * const *)a;
+    const char *s2 = *(const char * const *)b;
+    return strcmp(s1, s2);
+}
 
-    struct dirent *entry;
+void do_ls_long(const char *dir, char **names, int n)
+{
     struct stat st;
     char path[PATH_MAX], tmp[32], tmp2[32];
     int wl = 0, wu = 0, wg = 0, ws = 0;
     long total = 0;
 
-    /* pass 1: column widths + total blocks */
-    while ((entry = readdir(dp)) != NULL)
+    /* pass 1: widths + total */
+    for (int i = 0; i < n; i++)
     {
-        if (entry->d_name[0] == '.') continue;
-        snprintf(path, sizeof path, "%s/%s", dir, entry->d_name);
+        snprintf(path, sizeof path, "%s/%s", dir, names[i]);
         if (lstat(path, &st) == -1) { perror(path); continue; }
 
         total += st.st_blocks;
@@ -151,14 +153,12 @@ void do_ls_long(const char *dir)
         if (l > ws) ws = l;
     }
 
-    printf("total %ld\n", total / 2);   /* st_blocks = 512B units, ls = 1K */
-    rewinddir(dp);
+    printf("total %ld\n", total / 2);
 
     /* pass 2: print */
-    while ((entry = readdir(dp)) != NULL)
+    for (int i = 0; i < n; i++)
     {
-        if (entry->d_name[0] == '.') continue;
-        snprintf(path, sizeof path, "%s/%s", dir, entry->d_name);
+        snprintf(path, sizeof path, "%s/%s", dir, names[i]);
         if (lstat(path, &st) == -1) continue;
 
         char perm[11];
@@ -171,17 +171,16 @@ void do_ls_long(const char *dir)
                wg, group_of(st.st_gid, tmp2, sizeof tmp2),
                ws, (long long)st.st_size,
                ctime(&st.st_mtime) + 4,
-               entry->d_name);
+               names[i]);
 
         if (S_ISLNK(st.st_mode))
         {
             char target[PATH_MAX];
-            ssize_t n = readlink(path, target, sizeof target - 1);
-            if (n != -1) { target[n] = '\0'; printf(" -> %s", target); }
+            ssize_t k = readlink(path, target, sizeof target - 1);
+            if (k != -1) { target[k] = '\0'; printf(" -> %s", target); }
         }
         putchar('\n');
     }
-    closedir(dp);
 }
 
 
