@@ -28,18 +28,24 @@ char **read_names(const char *dir, int *count, int *maxlen);
 void free_names(char **names, int n);
 int term_width(void);
 void print_cols(char **names, int n, int maxlen);
-int long_flag = 0;
+void print_horiz(char **names, int n, int maxlen);
+enum { MODE_DEFAULT, MODE_LONG, MODE_HORIZ };
+int mode = MODE_DEFAULT;
+
+
+
 
 int main(int argc, char *argv[])
 {
     int opt;
-    while ((opt = getopt(argc, argv, "l")) != -1)
+    while ((opt = getopt(argc, argv, "lx")) != -1)
     {
         switch (opt)
         {
-        case 'l': long_flag = 1; break;
+        case 'l': mode = MODE_LONG;  break;
+        case 'x': mode = MODE_HORIZ; break;
         default:
-            fprintf(stderr, "Usage: %s [-l] [dir...]\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-l] [-x] [dir...]\n", argv[0]);
             exit(1);
         }
     }
@@ -59,11 +65,14 @@ int main(int argc, char *argv[])
 
 void do_ls(const char *dir)
 {
-    if (long_flag) { do_ls_long(dir); return; }
+    if (mode == MODE_LONG) { do_ls_long(dir); return; }
     int n, maxlen;
     char **names = read_names(dir, &n, &maxlen);
-    if (n < 0) return;                 /* opendir failed */
-    print_cols(names, n, maxlen);
+    if (n < 0) return;
+    if (mode == MODE_HORIZ)
+        print_horiz(names, n, maxlen);
+    else
+        print_cols(names, n, maxlen);
     free_names(names, n);
 }
 
@@ -250,4 +259,27 @@ void print_cols(char **names, int n, int maxlen)
         }
         putchar('\n');
     }
+}
+
+
+
+
+void print_horiz(char **names, int n, int maxlen)
+{
+    if (n == 0) return;
+    int colw = maxlen + 2;
+    int width = term_width();
+    int pos = 0;
+
+    for (int i = 0; i < n; i++)
+    {
+        if (pos > 0 && pos + colw > width)
+        {
+            putchar('\n');
+            pos = 0;
+        }
+        printf("%-*s", colw, names[i]);
+        pos += colw;
+    }
+    putchar('\n');
 }
