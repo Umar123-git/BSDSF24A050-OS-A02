@@ -8,6 +8,7 @@
 *       $ lsv1.0.0  /home/kali/   /etc/
 */
 #include <pwd.h>
+#include <sys/ioctl.h>
 #include <grp.h>
 #include <time.h>
 #include <limits.h>
@@ -23,6 +24,10 @@ extern int errno;
 
 void do_ls(const char *dir);
 void do_ls_long(const char *dir);
+char **read_names(const char *dir, int *count, int *maxlen);
+void free_names(char **names, int n);
+int term_width(void);
+void print_cols(char **names, int n, int maxlen);
 int long_flag = 0;
 
 int main(int argc, char *argv[])
@@ -55,27 +60,11 @@ int main(int argc, char *argv[])
 void do_ls(const char *dir)
 {
     if (long_flag) { do_ls_long(dir); return; }
-    struct dirent *entry;
-    DIR *dp = opendir(dir);
-    if (dp == NULL)
-    {
-        fprintf(stderr, "Cannot open directory : %s\n", dir);
-        return;
-    }
-    errno = 0;
-    while ((entry = readdir(dp)) != NULL)
-    {
-        if (entry->d_name[0] == '.')
-            continue;
-        printf("%s\n", entry->d_name);
-    }
-
-    if (errno != 0)
-    {
-        perror("readdir failed");
-    }
-
-    closedir(dp);
+    int n, maxlen;
+    char **names = read_names(dir, &n, &maxlen);
+    if (n < 0) return;                 /* opendir failed */
+    print_cols(names, n, maxlen);
+    free_names(names, n);
 }
 
 
@@ -184,4 +173,81 @@ void do_ls_long(const char *dir)
         putchar('\n');
     }
     closedir(dp);
+}
+
+
+
+
+char **read_names(const char *dir, int *count, int *maxlen)
+{
+    *count = 0;
+    *maxlen = 0;
+    DIR *dp = opendir(dir);
+    if (dp == NULL)
+    {
+        fprintf(stderr, "Cannot open directory : %s\n", dir);
+        *count = -1;
+        return NULL;
+    }
+
+    char **names = NULL;
+    int n = 0, cap = 0;
+    struct dirent *entry;
+
+    errno = 0;
+    while ((entry = readdir(dp)) != NULL)
+    {
+        if (entry->d_name[0] == '.') continue;
+        if (n == cap)
+        {
+            cap = cap ? cap * 2 : 64;
+            char **tmp = realloc(names, cap * sizeof(char *));
+            if (tmp == NULL) { perror("realloc"); exit(1); }
+            names = tmp;
+        }
+        names[n] = strdup(entry->d_name);
+        if (names[n] == NULL) { perror("strdup"); exit(1); }
+        int l = strlen(names[n]);
+        if (l > *maxlen) *maxlen = l;
+        n++;
+    }
+    if (errno != 0) perror("readdir failed");
+
+    closedir(dp);
+    *count = n;
+    return names;
+}
+
+void free_names(char **names, int n)
+{
+    for (int i = 0; i < n; i++) free(names[i]);
+    free(names);
+}
+
+int term_width(void)
+{
+    struct winsize w;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0 && w.ws_col > 0)
+        return w.ws_col;
+    return 80;
+}
+
+void print_cols(char **names, int n, int maxlen)
+{
+    if (n == 0) return;
+    int colw = maxlen + 2;
+    int cols = term_width() / colw;
+    if (cols < 1) cols = 1;
+    int rows = (n + cols - 1) / cols;
+
+    for (int r = 0; r < rows; r++)
+    {
+        for (int c = 0; c < cols; c++)
+        {
+            int i = r + c * rows;
+            if (i >= n) break;
+            printf("%-*s", colw, names[i]);
+        }
+        putchar('\n');
+    }
 }
