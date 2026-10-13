@@ -1,11 +1,7 @@
 /*
-* Programming Assignment 02: lsv1.0.0
-* This is the source file of version 1.0.0
-* Read the write-up of the assignment to add the features to this base version
-* Usage:
-*       $ lsv1.0.0 
-*       % lsv1.0.0  /home
-*       $ lsv1.0.0  /home/kali/   /etc/
+* Programming Assignment 02: ls v1.5.0
+* Features: -l long listing, -x horizontal, column display (down then
+*           across), alphabetical sort, colorized output.
 */
 #include <pwd.h>
 #include <sys/ioctl.h>
@@ -20,6 +16,13 @@
 #include <errno.h>
 #include <sys/stat.h>
 
+#define C_RESET "\033[0m"
+#define C_BLUE  "\033[0;34m"
+#define C_GREEN "\033[0;32m"
+#define C_RED   "\033[0;31m"
+#define C_PINK  "\033[0;35m"
+#define C_REV   "\033[7m"
+
 extern int errno;
 
 void do_ls(const char *dir);
@@ -28,13 +31,12 @@ int cmp_names(const void *a, const void *b);
 char **read_names(const char *dir, int *count, int *maxlen);
 void free_names(char **names, int n);
 int term_width(void);
-void print_cols(char **names, int n, int maxlen);
-void print_horiz(char **names, int n, int maxlen);
+void print_cols(const char *dir, char **names, int n, int maxlen);
+void print_horiz(const char *dir, char **names, int n, int maxlen);
+void print_name(const char *dir, const char *name, int colw);
+
 enum { MODE_DEFAULT, MODE_LONG, MODE_HORIZ };
 int mode = MODE_DEFAULT;
-
-
-
 
 int main(int argc, char *argv[])
 {
@@ -75,13 +77,12 @@ void do_ls(const char *dir)
     if (mode == MODE_LONG)
         do_ls_long(dir, names, n);
     else if (mode == MODE_HORIZ)
-        print_horiz(names, n, maxlen);
+        print_horiz(dir, names, n, maxlen);
     else
-        print_cols(names, n, maxlen);
+        print_cols(dir, names, n, maxlen);
 
     free_names(names, n);
 }
-
 
 static void mode_to_str(mode_t m, char *p)
 {
@@ -121,6 +122,7 @@ static const char *group_of(gid_t g, char *buf, size_t n)
     snprintf(buf, n, "%u", (unsigned)g);
     return buf;
 }
+
 int cmp_names(const void *a, const void *b)
 {
     const char *s1 = *(const char * const *)a;
@@ -135,7 +137,7 @@ void do_ls_long(const char *dir, char **names, int n)
     int wl = 0, wu = 0, wg = 0, ws = 0;
     long total = 0;
 
-    /* pass 1: widths + total */
+    /* pass 1: column widths + total blocks */
     for (int i = 0; i < n; i++)
     {
         snprintf(path, sizeof path, "%s/%s", dir, names[i]);
@@ -164,14 +166,14 @@ void do_ls_long(const char *dir, char **names, int n)
         char perm[11];
         mode_to_str(st.st_mode, perm);
 
-        printf("%s %*lu %-*s %-*s %*lld %.12s %s",
+        printf("%s %*lu %-*s %-*s %*lld %.12s ",
                perm,
                wl, (unsigned long)st.st_nlink,
                wu, user_of(st.st_uid, tmp, sizeof tmp),
                wg, group_of(st.st_gid, tmp2, sizeof tmp2),
                ws, (long long)st.st_size,
-               ctime(&st.st_mtime) + 4,
-               names[i]);
+               ctime(&st.st_mtime) + 4);
+        print_name(dir, names[i], 0);
 
         if (S_ISLNK(st.st_mode))
         {
@@ -182,9 +184,6 @@ void do_ls_long(const char *dir, char **names, int n)
         putchar('\n');
     }
 }
-
-
-
 
 char **read_names(const char *dir, int *count, int *maxlen)
 {
@@ -240,7 +239,7 @@ int term_width(void)
     return 80;
 }
 
-void print_cols(char **names, int n, int maxlen)
+void print_cols(const char *dir, char **names, int n, int maxlen)
 {
     if (n == 0) return;
     int colw = maxlen + 2;
@@ -254,16 +253,13 @@ void print_cols(char **names, int n, int maxlen)
         {
             int i = r + c * rows;
             if (i >= n) break;
-            printf("%-*s", colw, names[i]);
+            print_name(dir, names[i], colw);
         }
         putchar('\n');
     }
 }
 
-
-
-
-void print_horiz(char **names, int n, int maxlen)
+void print_horiz(const char *dir, char **names, int n, int maxlen)
 {
     if (n == 0) return;
     int colw = maxlen + 2;
@@ -277,8 +273,33 @@ void print_horiz(char **names, int n, int maxlen)
             putchar('\n');
             pos = 0;
         }
-        printf("%-*s", colw, names[i]);
+        print_name(dir, names[i], colw);
         pos += colw;
     }
     putchar('\n');
+}
+
+void print_name(const char *dir, const char *name, int colw)
+{
+    char path[PATH_MAX];
+    struct stat st;
+    const char *color = "";
+
+    snprintf(path, sizeof path, "%s/%s", dir, name);
+    if (lstat(path, &st) == 0)
+    {
+        mode_t m = st.st_mode;
+        if (S_ISLNK(m))                      color = C_PINK;
+        else if (S_ISDIR(m))                 color = C_BLUE;
+        else if (S_ISCHR(m) || S_ISBLK(m) ||
+                 S_ISSOCK(m) || S_ISFIFO(m)) color = C_REV;
+        else if (strstr(name, ".tar") || strstr(name, ".gz") ||
+                 strstr(name, ".zip"))       color = C_RED;
+        else if (m & (S_IXUSR | S_IXGRP | S_IXOTH)) color = C_GREEN;
+    }
+
+    if (*color) printf("%s%s%s", color, name, C_RESET);
+    else        printf("%s", name);
+
+    for (int k = strlen(name); k < colw; k++) putchar(' ');
 }
