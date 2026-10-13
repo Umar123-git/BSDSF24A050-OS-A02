@@ -1,4 +1,3 @@
-cat > REPORT.md << 'EOF'
 # REPORT: OS Programming Assignment 02 (ls utility)
 
 Roll No: BSDSF24A050
@@ -118,4 +117,3 @@ Roll No: BSDSF24A050
 - The path must be built as `parent_dir/subdir` (with `snprintf(path, sizeof path, "%s/%s", dir, name)`). Then both `lstat()` and `opendir()` refer to the correct location, however deep the recursion is.
 - Calling `do_ls("subdir")` makes the system look for `./subdir` relative to the current working directory, not relative to `parent_dir`. It would fail with "Cannot open directory" if no such folder exists there, or worse, silently list a different directory that has the same name.
 - The same full path is also needed for `lstat()` when checking whether the entry is a directory.
-EOF
