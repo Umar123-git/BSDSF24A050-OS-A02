@@ -38,17 +38,20 @@ void print_name(const char *dir, const char *name, int colw);
 enum { MODE_DEFAULT, MODE_LONG, MODE_HORIZ };
 int mode = MODE_DEFAULT;
 
+int recursive_flag = 0;
+
 int main(int argc, char *argv[])
 {
     int opt;
-    while ((opt = getopt(argc, argv, "lx")) != -1)
+    while ((opt = getopt(argc, argv, "lxR")) != -1)
     {
         switch (opt)
         {
         case 'l': mode = MODE_LONG;  break;
         case 'x': mode = MODE_HORIZ; break;
+        case 'R': recursive_flag = 1; break;
         default:
-            fprintf(stderr, "Usage: %s [-l] [-x] [dir...]\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-l] [-x] [-R] [dir...]\n", argv[0]);
             exit(1);
         }
     }
@@ -58,9 +61,11 @@ int main(int argc, char *argv[])
     {
         for (int i = optind; i < argc; i++)
         {
-            printf("Directory listing of %s : \n", argv[i]);
+            if (!recursive_flag)
+                printf("Directory listing of %s : \n", argv[i]);
             do_ls(argv[i]);
-            puts("");
+            if (!recursive_flag)
+                puts("");
         }
     }
     return 0;
@@ -68,6 +73,9 @@ int main(int argc, char *argv[])
 
 void do_ls(const char *dir)
 {
+    if (recursive_flag)
+        printf("%s:\n", dir);
+
     int n, maxlen;
     char **names = read_names(dir, &n, &maxlen);
     if (n < 0) return;
@@ -80,6 +88,21 @@ void do_ls(const char *dir)
         print_horiz(dir, names, n, maxlen);
     else
         print_cols(dir, names, n, maxlen);
+
+    if (recursive_flag)
+    {
+        for (int i = 0; i < n; i++)
+        {
+            char path[PATH_MAX];
+            struct stat st;
+            snprintf(path, sizeof path, "%s/%s", dir, names[i]);
+            if (lstat(path, &st) == 0 && S_ISDIR(st.st_mode))
+            {
+                putchar('\n');
+                do_ls(path);
+            }
+        }
+    }
 
     free_names(names, n);
 }
